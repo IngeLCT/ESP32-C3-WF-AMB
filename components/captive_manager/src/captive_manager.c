@@ -19,7 +19,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define FORCE_AP_NAT_MODE // Comenta esta línea para desactivar el modo forzado
+//#define FORCE_AP_NAT_MODE // Comenta esta línea para desactivar el modo forzado
 
 static const char *TAG = "captive_mgr";
 

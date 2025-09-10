@@ -72,8 +72,9 @@ void sensor_task(void *pv) {
     }
     firebase_delete("/historial_mediciones");
 
-    const int SAMPLES_PER_BATCH = 5;
-    const TickType_t SAMPLE_DELAY_TICKS = pdMS_TO_TICKS(60000);
+    // 1 muestra cada 10 minutos, envío cada 60 minutos
+    const int SAMPLES_PER_BATCH = 6; // 6 muestras por lote (1 cada 10 min, envío cada 60 min)
+    const TickType_t SAMPLE_DELAY_TICKS = pdMS_TO_TICKS(600000); // 10 minutos = 600,000 ms
     int sample_count = 0;
 
     double sum_pm1p0=0, sum_pm2p5=0, sum_pm4p0=0, sum_pm10p0=0, sum_voc=0, sum_nox=0, sum_avg_temp=0, sum_avg_hum=0;
@@ -118,7 +119,8 @@ void sensor_task(void *pv) {
             char hora_envio[16];
             strftime(hora_envio, sizeof(hora_envio), "%H:%M:%S", &tm_info);
             char fecha_actual[20];
-            strftime(fecha_actual, sizeof(fecha_actual), "%d-%m-%y", &tm_info);
+            // Formato actualizado a DD-MM-YYYY
+            strftime(fecha_actual, sizeof(fecha_actual), "%d-%m-%Y", &tm_info);
 
             SensorData avg = {0};
             double denom = (double)sample_count;
