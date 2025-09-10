@@ -1,0 +1,52 @@
+############################################################
+# ESP-IDF Project .gitignore
+# Mantiene fuera del repo archivos generados y credenciales.
+############################################################
+
+# Credenciales privadas (se provee un Privado.example.h)
+main/Privado.h
+
+# Directorios de build / artefactos generados
+build/
+managed_components/
+
+# Binarios / mapas generados
+*.bin
+*.elf
+*.map
+*.log
+
+# Cachés Python
+__pycache__/
+*.pyc
+
+# Archivos de configuración secundarios
+sdkconfig.old
+
+# (IMPORTANTE) NO ignorar sdkconfig para compartir misma config entre desarrolladores
+#sdkconfig
+
+# Archivos generados por idf.py / CMake que no necesitamos versionar
+flasher_args.json
+flash_args
+flash_app_args
+flash_bootloader_args
+flash_project_args
+partition-table-flash_args
+bootloader-flash_args
+project_description.json
+kconfigs.in
+kconfigs_projbuild.in
+ldgen_libraries
+ldgen_libraries.in
+
+# IDE / Editor específicos (recomendado ignorar settings locales)
+.vscode/
+
+# Herramientas de análisis (opcional conservar .clangd si se quiere compartir)
+# .clangd
+
+# Archivos temporales varios
+*.swp
+*.tmp
+~*
