@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <algorithm>
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -211,28 +212,28 @@ esp_err_t RTDB::deleteData(const char* path)
 
     ESP_LOGW(RTDB_TAG, "DELETE grande: intentando borrado por lotes (shallow)");
 
-    // Paginación: shallow=true con orderBy y limitToFirst para no desbordar el buffer
-    const int BATCH = 100; // ajustable: pequeño para TX=4096
+    // Paginación sin shallow: orderBy=$key y limitToFirst para no desbordar el buffer
+    const int BATCH = 50; // ajustable: payload reducido
     std::string last_key;
     bool have_last = false;
     size_t total_ok = 0;
     size_t total_seen = 0;
 
     while (true) {
-        std::string shallow_url = RTDB::base_database_url;
-        shallow_url += path;
-        shallow_url += ".json?shallow=true&orderBy=%22%24key%22";
+        std::string list_url = RTDB::base_database_url;
+        list_url += path;
+        list_url += ".json?orderBy=%22%24key%22";
         int limit = BATCH + (have_last ? 1 : 0);
-        shallow_url += "&limitToFirst=" + std::to_string(limit);
+        list_url += "&limitToFirst=" + std::to_string(limit);
         if (have_last) {
-            shallow_url += "&startAt=%22" + last_key + "%22"; // keys son push IDs; sin espacios
+            list_url += "&startAt=%22" + last_key + "%22";
         }
-        shallow_url += "&auth=" + this->app->auth_token;
+        list_url += "&auth=" + this->app->auth_token;
 
         this->app->setHeader("content-type", "application/json");
-        http_ret_t get_ret = this->app->performRequest(shallow_url.c_str(), HTTP_METHOD_GET, "");
+        http_ret_t get_ret = this->app->performRequest(list_url.c_str(), HTTP_METHOD_GET, "");
         if (!(get_ret.err == ESP_OK && get_ret.status_code == 200)) {
-            ESP_LOGE(RTDB_TAG, "Fallo obteniendo claves (shallow-paged) status=%d", get_ret.status_code);
+            ESP_LOGE(RTDB_TAG, "Fallo obteniendo claves (paged) status=%d", get_ret.status_code);
             this->app->clearHTTPBuffer();
             return ESP_FAIL;
         }
@@ -333,5 +334,89 @@ esp_err_t RTDB::deleteData(const char* path)
 }
 
 
+
+esp_err_t RTDB::trimDays(const char* root_path, int max_days)
+{
+    if (max_days <= 0) return ESP_OK;
+
+    // Listar días (claves) bajo root con shallow=true
+    std::string url = RTDB::base_database_url;
+    url += root_path;
+    url += ".json?shallow=true&auth=" + this->app->auth_token;
+    this->app->setHeader("content-type", "application/json");
+    http_ret_t http_ret = this->app->performRequest(url.c_str(), HTTP_METHOD_GET, "");
+    if (!(http_ret.err == ESP_OK && http_ret.status_code == 200)) {
+        ESP_LOGE(RTDB_TAG, "trimDays: fallo GET shallow status=%d", http_ret.status_code);
+        this->app->clearHTTPBuffer();
+        return ESP_FAIL;
+    }
+
+    const char* begin = this->app->local_response_buffer;
+    const char* end = begin + strlen(this->app->local_response_buffer);
+    Json::Reader reader;
+    Json::Value days_obj;
+    reader.parse(begin, end, days_obj, false);
+    this->app->clearHTTPBuffer();
+    if (!days_obj.isObject()) return ESP_OK; // nada que recortar
+
+    std::vector<std::string> days = days_obj.getMemberNames();
+    if ((int)days.size() <= max_days) return ESP_OK;
+
+    // Las fechas deben estar en formato YYYY-MM-DD para que el orden lex sea cronológico
+    std::sort(days.begin(), days.end()); // asc: más antiguo primero si YYYY-MM-DD
+
+    int to_delete = (int)days.size() - max_days;
+    for (int i = 0; i < to_delete; ++i) {
+        std::string child = std::string(root_path) + "/" + days[i];
+        ESP_LOGI(RTDB_TAG, "trimDays: borrando día antiguo %s", days[i].c_str());
+        RTDB::deleteData(child.c_str());
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    return ESP_OK;
+}
+
+// Borra los N elementos más antiguos bajo root_path usando orderBy=$key y PATCH con print=silent
+int RTDB::trimOldestBatch(const char* root_path, int batch_size)
+{
+    if (batch_size <= 0) return 0;
+    std::string list_url = RTDB::base_database_url;
+    list_url += root_path;
+    list_url += ".json?orderBy=%22%24key%22&limitToFirst=" + std::to_string(batch_size) + "&auth=" + this->app->auth_token;
+    this->app->setHeader("content-type", "application/json");
+    http_ret_t get_ret = this->app->performRequest(list_url.c_str(), HTTP_METHOD_GET, "");
+    if (!(get_ret.err == ESP_OK && get_ret.status_code == 200)) {
+        this->app->clearHTTPBuffer();
+        return -1;
+    }
+    const char* begin = this->app->local_response_buffer;
+    const char* end = begin + strlen(this->app->local_response_buffer);
+    Json::Reader reader;
+    Json::Value obj;
+    reader.parse(begin, end, obj, false);
+    this->app->clearHTTPBuffer();
+    if (!obj.isObject()) return 0;
+    std::vector<std::string> keys = obj.getMemberNames();
+    if (keys.empty()) return 0;
+
+    std::string patch_body;
+    patch_body.reserve(1024);
+    patch_body += "{";
+    for (size_t i = 0; i < keys.size(); ++i) {
+        if (i) patch_body += ",";
+        patch_body += "\""; patch_body += keys[i]; patch_body += "\":null";
+    }
+    patch_body += "}";
+
+    std::string patch_url = RTDB::base_database_url;
+    patch_url += root_path;
+    patch_url += ".json?auth=" + this->app->auth_token + "&print=silent";
+    this->app->setHeader("content-type", "application/json");
+    http_ret_t patch_ret = this->app->performRequest(patch_url.c_str(), HTTP_METHOD_PATCH, patch_body);
+    this->app->clearHTTPBuffer();
+    if (!(patch_ret.err == ESP_OK && patch_ret.status_code >= 200 && patch_ret.status_code < 300)) {
+        return -2;
+    }
+    return (int)keys.size();
+}
 
 }

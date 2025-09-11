@@ -173,6 +173,26 @@ void sensor_task(void *pv) {
             ESP_LOGI(TAG, "JSON promedio %dm: %s", batch_minutes, json);
             firebase_push("/historial_mediciones", json);
 
+            // Retención aproximada por tamaño total (10 MB) sin cambiar estructura
+            const size_t MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+            static double avg_size = 256.0; // bytes promedio por item (estimado dinámico)
+            static uint32_t approx_count = 0; // cuenta aproximada desde boot
+            size_t item_len = strlen(json);
+            // actualizar media móvil simple
+            avg_size = (avg_size * 0.9) + (0.1 * (double)item_len);
+            approx_count++;
+
+            uint32_t max_items = (uint32_t)(MAX_BYTES / (avg_size > 1.0 ? avg_size : 1.0));
+            uint32_t high_water = max_items + 50; // margen para evitar recortes constantes
+            if (approx_count > high_water) {
+                int deleted = firebase_trim_oldest_batch("/historial_mediciones", 50);
+                if (deleted > 0) {
+                    approx_count = (approx_count > (uint32_t)deleted) ? (approx_count - (uint32_t)deleted) : 0;
+                    ESP_LOGI(TAG, "Retención: borrados %d antiguos. approx_count=%u max_items=%u avg=%.1fB",
+                             deleted, approx_count, max_items, avg_size);
+                }
+            }
+
             sample_count = 0;
             sum_pm1p0=sum_pm2p5=sum_pm4p0=sum_pm10p0=sum_voc=sum_nox=sum_avg_temp=sum_avg_hum=0;
             sum_co2 = 0;

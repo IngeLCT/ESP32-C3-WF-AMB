@@ -4,7 +4,8 @@
 #include <string>
 
 
-#define HTTP_RECV_BUFFER_SIZE 4096
+// Buffer de recepción HTTP ampliado para respuestas más grandes
+#define HTTP_RECV_BUFFER_SIZE 16384
 
 namespace ESPFirebase 
 {

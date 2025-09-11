@@ -60,5 +60,16 @@ int firebase_delete(const char* path) {
 	return err == ESP_OK ? 0 : (int)err;
 }
 
+int firebase_trim_days(const char* root_path, int max_days) {
+    if (!g_rtdb) return -1;
+    esp_err_t err = g_rtdb->trimDays(root_path, max_days);
+    return err == ESP_OK ? 0 : (int)err;
+}
+
+int firebase_trim_oldest_batch(const char* root_path, int batch_size) {
+    if (!g_rtdb) return -1;
+    return g_rtdb->trimOldestBatch(root_path, batch_size);
+}
+
 }
 

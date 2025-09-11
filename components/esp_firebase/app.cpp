@@ -55,8 +55,16 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
             break;
         case HTTP_EVENT_ON_DATA:
             ESP_LOGD(HTTP_TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
-            memcpy((char*)evt->user_data + output_len, evt->data, evt->data_len);
-            output_len += evt->data_len;
+            if (evt->user_data && evt->data && evt->data_len > 0) {
+                int capacity = HTTP_RECV_BUFFER_SIZE - 1; // deja 1 para terminador
+                int space = capacity - output_len;
+                if (space > 0) {
+                    int to_copy = evt->data_len < space ? evt->data_len : space;
+                    memcpy((char*)evt->user_data + output_len, evt->data, to_copy);
+                    output_len += to_copy;
+                    ((char*)evt->user_data)[output_len] = '\0';
+                }
+            }
             break;
         case HTTP_EVENT_DISCONNECTED:
             ESP_LOGD(HTTP_TAG, "HTTP_EVENT_DISCONNECTED");

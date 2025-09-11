@@ -32,6 +32,9 @@ namespace ESPFirebase
         esp_err_t patchData(const char* path, const Json::Value& data);
         
         esp_err_t deleteData(const char* path);
+        // Opcionales de mantenimiento
+        esp_err_t trimDays(const char* root_path, int max_days);
+        int trimOldestBatch(const char* root_path, int batch_size);
         RTDB(FirebaseApp* app, const char* database_url);
     };
 
