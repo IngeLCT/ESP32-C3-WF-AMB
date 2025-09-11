@@ -93,62 +93,73 @@ esp_err_t FirebaseApp::setHeader(const char* header, const char* value)
     return esp_http_client_set_header(FirebaseApp::client, header, value);
 }
 
-http_ret_t FirebaseApp::performRequest(const char* url, esp_http_client_method_t method, std::string post_field)
+http_ret_t FirebaseApp::performRequest(const char* url,
+                                       esp_http_client_method_t method,
+                                       std::string post_field)
 {
     const int MAX_ATTEMPTS = 2; // 1 intento + 1 reintento
     esp_err_t err = ESP_FAIL;
     int status_code = -1;
 
     for (int attempt = 1; attempt <= MAX_ATTEMPTS; ++attempt) {
-        // Limpiar buffer de respuesta para no arrastrar status previo
-        clearHTTPBuffer();
-
-        if (esp_http_client_set_url(FirebaseApp::client, url) != ESP_OK) {
-            ESP_LOGE(FIREBASE_APP_TAG, "set_url fallo");
+        // Inicializa o reusa el cliente
+        if (FirebaseApp::client == nullptr) {
+            esp_http_client_config_t cfg = {};
+            cfg.url = url;
+            cfg.crt_bundle_attach = esp_crt_bundle_attach;
+            FirebaseApp::client = esp_http_client_init(&cfg);
+            if (!FirebaseApp::client) {
+                ESP_LOGE(FIREBASE_APP_TAG, "http_client_init fallo");
+                break;
+            }
+        } else {
+            esp_http_client_set_url(FirebaseApp::client, url);
         }
+
         if (esp_http_client_set_method(FirebaseApp::client, method) != ESP_OK) {
             ESP_LOGE(FIREBASE_APP_TAG, "set_method fallo");
         }
+
+        // Métodos con body
         if (method == HTTP_METHOD_POST || method == HTTP_METHOD_PUT || method == HTTP_METHOD_PATCH) {
-            if (esp_http_client_set_post_field(FirebaseApp::client, post_field.c_str(), post_field.length()) != ESP_OK) {
+            if (esp_http_client_set_post_field(FirebaseApp::client,
+                                               post_field.c_str(),
+                                               post_field.length()) != ESP_OK) {
                 ESP_LOGE(FIREBASE_APP_TAG, "set_post_field fallo");
             }
+            setHeader("content-type", "application/json");
+        } else {
+            // Métodos SIN body (DELETE/GET): limpiar payload y forzar Content-Length: 0
+            esp_http_client_set_post_field(FirebaseApp::client, "", 0);
+            esp_http_client_set_header(FirebaseApp::client, "Content-Length", "0");
         }
 
         err = esp_http_client_perform(FirebaseApp::client);
-        if (err == ESP_OK) {
-            status_code = esp_http_client_get_status_code(FirebaseApp::client);
-        } else {
-            status_code = -1; // inválido
-        }
+        status_code = esp_http_client_get_status_code(FirebaseApp::client);
 
-        if (err == ESP_OK && status_code == 200) {
-            // Cerrar conexión para evitar socket muerto tras largos intervalos
+        // Aceptar cualquier 2xx como éxito (DELETE puede devolver 204)
+        if (err == ESP_OK && status_code >= 200 && status_code < 300) {
             esp_http_client_close(FirebaseApp::client);
             return {err, status_code};
         }
 
-        ESP_LOGE(FIREBASE_APP_TAG, "HTTP fallo intento %d/%d err=0x%x(%s) status=%d", attempt, MAX_ATTEMPTS, (int)err, esp_err_to_name(err), status_code);
-        ESP_LOGE(FIREBASE_APP_TAG, "request: url=%s\nmethod=%d\npost_field=%s", url, method, post_field.c_str());
+        ESP_LOGE(FIREBASE_APP_TAG,
+                "request: url=%s\nmethod=%d\npost_field=%s",
+                url, method, post_field.c_str());
         ESP_LOGE(FIREBASE_APP_TAG, "response=\n%s", local_response_buffer);
 
-        if (attempt < MAX_ATTEMPTS) {
-            // Cerrar siempre antes de reintentar para forzar nuevo handshake limpio
-            esp_http_client_close(FirebaseApp::client);
-            // Si fallo de transporte, recrear handle completo
-            if (err != ESP_OK || status_code < 0) {
-                ESP_LOGW(FIREBASE_APP_TAG, "Recreando cliente HTTP para reintento...");
-                esp_http_client_cleanup(FirebaseApp::client);
-                firebaseClientInit();
-            }
-            if (method == HTTP_METHOD_POST || method == HTTP_METHOD_PUT || method == HTTP_METHOD_PATCH) {
-                setHeader("content-type", "application/json");
-            }
-            vTaskDelay(pdMS_TO_TICKS(200));
+        // Reintento: asegurar headers/estado del body correctos
+        if (method == HTTP_METHOD_POST || method == HTTP_METHOD_PUT || method == HTTP_METHOD_PATCH) {
+            setHeader("content-type", "application/json");
+        } else {
+            esp_http_client_set_post_field(FirebaseApp::client, "", 0);
+            esp_http_client_set_header(FirebaseApp::client, "Content-Length", "0");
         }
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
     return {err, status_code};
 }
+
 
 void FirebaseApp::clearHTTPBuffer(void)
 {   

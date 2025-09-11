@@ -70,7 +70,7 @@ void sensor_task(void *pv) {
         ESP_LOGE(TAG, "Error inicializando Firebase");
         vTaskDelete(NULL);
     }
-    firebase_putData("/historial_mediciones", "null");
+
     vTaskDelay(pdMS_TO_TICKS(1000));
     firebase_delete("/historial_mediciones");
     // Configuración de muestreo/envío

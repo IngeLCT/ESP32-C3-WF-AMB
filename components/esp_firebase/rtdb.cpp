@@ -170,27 +170,37 @@ esp_err_t RTDB::patchData(const char* path, const Json::Value& data)
 
 esp_err_t RTDB::deleteData(const char* path)
 {
-    
     std::string url = RTDB::base_database_url;
     url += path;
     url += ".json?auth=" + this->app->auth_token;
-    this->app->setHeader("content-type", "application/json");
+
+    // DELETE sin cuerpo: forzar Content-Length: 0 y exigir JSON de vuelta
+    this->app->setHeader("Content-Length", "0");
+    this->app->setHeader("Accept", "application/json");
+
     http_ret_t http_ret = this->app->performRequest(url.c_str(), HTTP_METHOD_DELETE, "");
-    if (!(http_ret.err == ESP_OK && http_ret.status_code == 200) && http_ret.status_code == 401) {
+
+    // Si el token expiró
+    if (!(http_ret.err == ESP_OK && (http_ret.status_code >= 200 && http_ret.status_code < 300)) &&
+        http_ret.status_code == 401) {
         ESP_LOGW(RTDB_TAG, "DELETE 401 -> intentando refresh auth");
         this->app->forceRefreshAuth();
         url = RTDB::base_database_url; url += path; url += ".json?auth=" + this->app->auth_token;
-        this->app->setHeader("content-type", "application/json");
+        this->app->setHeader("Content-Length", "0");
+        this->app->setHeader("Accept", "application/json");
         http_ret = this->app->performRequest(url.c_str(), HTTP_METHOD_DELETE, "");
     }
+
     this->app->clearHTTPBuffer();
-    if (http_ret.err == ESP_OK && http_ret.status_code == 200) {
-        ESP_LOGI(RTDB_TAG, "DELETE successful");
+
+    if (http_ret.err == ESP_OK && (http_ret.status_code >= 200 && http_ret.status_code < 300)) {
+        ESP_LOGI(RTDB_TAG, "DELETE successful (status=%d)", http_ret.status_code);
         return ESP_OK;
     }
-    ESP_LOGE(RTDB_TAG, "DELETE failed");
+    ESP_LOGE(RTDB_TAG, "DELETE failed (status=%d)", http_ret.status_code);
     return ESP_FAIL;
 }
+
 
 
 }
