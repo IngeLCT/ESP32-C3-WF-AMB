@@ -32,7 +32,7 @@ void geoapify_fetch_once(void);
 #define ENABLE_HTTP_VERBOSE 1
 #define LOG_EACH_SAMPLE 1
 
-static const char *TAG = "ESP-WROVER-FB";
+static const char *TAG = "ESP32-C3-FB";
 
 static void init_sntp_and_time(void) {
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
