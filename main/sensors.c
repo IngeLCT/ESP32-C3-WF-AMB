@@ -4,8 +4,8 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 
-#define I2C_MASTER_SCL_IO 19
-#define I2C_MASTER_SDA_IO 18
+#define I2C_MASTER_SCL_IO 6
+#define I2C_MASTER_SDA_IO 7
 #define I2C_MASTER_FREQ_HZ 100000
 #define I2C_PORT I2C_NUM_0
 

@@ -70,11 +70,14 @@ void sensor_task(void *pv) {
         ESP_LOGE(TAG, "Error inicializando Firebase");
         vTaskDelete(NULL);
     }
+    firebase_putData("/historial_mediciones", "null");
+    vTaskDelay(pdMS_TO_TICKS(1000));
     firebase_delete("/historial_mediciones");
-
-    // 1 muestra cada 10 minutos, envío cada 60 minutos
-    const int SAMPLES_PER_BATCH = 6; // 6 muestras por lote (1 cada 10 min, envío cada 60 min)
-    const TickType_t SAMPLE_DELAY_TICKS = pdMS_TO_TICKS(600000); // 10 minutos = 600,000 ms
+    // Configuración de muestreo/envío
+    // 1 muestra cada 1 minuto, envío cada 5 minutos (5 muestras por lote)
+    const int SAMPLE_EVERY_MIN = 1;
+    const int SAMPLES_PER_BATCH = 5;
+    const TickType_t SAMPLE_DELAY_TICKS = pdMS_TO_TICKS(SAMPLE_EVERY_MIN * 60000);
     int sample_count = 0;
 
     double sum_pm1p0=0, sum_pm2p5=0, sum_pm4p0=0, sum_pm10p0=0, sum_voc=0, sum_nox=0, sum_avg_temp=0, sum_avg_hum=0;
@@ -165,7 +168,9 @@ void sensor_task(void *pv) {
                         avg.co2, hora_envio);
                 }
             }
-            ESP_LOGI(TAG, "JSON promedio 30m: %s", json);
+            // Log dinámico indicando cada cuántos minutos se está enviando
+            int batch_minutes = SAMPLES_PER_BATCH * SAMPLE_EVERY_MIN;
+            ESP_LOGI(TAG, "JSON promedio %dm: %s", batch_minutes, json);
             firebase_push("/historial_mediciones", json);
 
             sample_count = 0;
