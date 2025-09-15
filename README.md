@@ -1,4 +1,4 @@
-# Proyecto ESP-WROVER-FB
+# Proyecto ESP32-C3-WF-FB
 
 Proyecto basado en ESP-IDF para ESP32 (target principal: `esp32`). Incluye componentes personalizados (`esp_firebase`, `jsoncpp`) y manejo de sensores + WiFi + Firebase.
 
