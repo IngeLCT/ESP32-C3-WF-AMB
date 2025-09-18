@@ -598,11 +598,11 @@ static void start_mdns_service(void) {
     static bool mdns_started = false;
     if (mdns_started) return;
     if (mdns_init() == ESP_OK) {
-        mdns_hostname_set("esp32");
+        mdns_hostname_set("LCTMedAmb");
         mdns_instance_name_set("ESP32 Ambiente");
         mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
         mdns_started = true;
-        ESP_LOGI(TAG, "mDNS started as esp32.local");
+        ESP_LOGI(TAG, "mDNS started as LCTMedAmb.local");
     } else {
         ESP_LOGW(TAG, "mDNS init failed");
     }
