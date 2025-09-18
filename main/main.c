@@ -64,7 +64,7 @@ void sensor_task(void *pv) {
     const uint32_t TOKEN_REFRESH_INTERVAL_SEC = 50 * 60;
     time_t last_token_refresh = time(NULL);
 
-    geoapify_fetch_once();
+    geoapify_fetch_once_wifi_unwired();   // <--- llamada nueva (WiFi positioning)
 
     if (firebase_init() != 0) {
         ESP_LOGE(TAG, "Error inicializando Firebase");
