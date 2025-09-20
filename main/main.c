@@ -34,6 +34,8 @@ void geoapify_fetch_once(void);
 
 static const char *TAG = "ESP32-C3-FB";
 
+static inline int64_t minutes_to_us(int m) { return (int64_t)m * 60 * 1000000; }
+
 static void init_sntp_and_time(void) {
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, "pool.ntp.org");
@@ -61,8 +63,6 @@ void sensor_task(void *pv) {
     strftime(inicio_str, sizeof(inicio_str), "%H:%M:%S", &start_tm_info);
 
     bool first_send = true;
-    const uint32_t TOKEN_REFRESH_INTERVAL_SEC = 50 * 60;
-    time_t last_token_refresh = time(NULL);
 
     geoapify_fetch_once_wifi_unwired();   // <--- llamada nueva (WiFi positioning)
 
@@ -84,6 +84,9 @@ void sensor_task(void *pv) {
     uint32_t sum_co2 = 0;
     char last_fecha_str[20] = "";
 
+    const int64_t REFRESH_US = minutes_to_us(50);
+    int64_t next_refresh_us = esp_timer_get_time() + REFRESH_US;
+
     while (1) {
         if (sensors_read(&data) == ESP_OK) {
             sample_count++;
@@ -104,14 +107,6 @@ void sensor_task(void *pv) {
 #endif
         } else {
             ESP_LOGW(TAG, "Error leyendo sensores (batch %d)", sample_count);
-        }
-
-        time_t now_epoch_check = time(NULL);
-        if ((now_epoch_check - last_token_refresh) >= TOKEN_REFRESH_INTERVAL_SEC) {
-            ESP_LOGI(TAG, "Refrescando token (intervalo 50m)...");
-            int r = firebase_refresh_token();
-            if (r == 0) ESP_LOGI(TAG, "Token refresh OK"); else ESP_LOGW(TAG, "Fallo refresh token (%d)", r);
-            last_token_refresh = now_epoch_check;
         }
 
         if (sample_count >= SAMPLES_PER_BATCH) {
@@ -196,6 +191,15 @@ void sensor_task(void *pv) {
             sample_count = 0;
             sum_pm1p0=sum_pm2p5=sum_pm4p0=sum_pm10p0=sum_voc=sum_nox=sum_avg_temp=sum_avg_hum=0;
             sum_co2 = 0;
+        }
+        // Refresh del token cada ~50 min (no le afecta SNTP):
+        int64_t now_us = esp_timer_get_time();
+        if (now_us >= next_refresh_us) {
+            ESP_LOGI(TAG_APP, "Refrescando token (50m) [monotónico]...");
+            int r = firebase_refresh_token();
+            if (r == 0) ESP_LOGI(TAG_APP, "Token refresh OK"); else ESP_LOGW(TAG_APP, "Fallo refresh token (%d)", r);
+            // agenda el próximo exactamente 50 min después DEL AHORA (evita drift):
+            next_refresh_us = now_us + REFRESH_US;
         }
 
         vTaskDelay(SAMPLE_DELAY_TICKS);
