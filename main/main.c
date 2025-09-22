@@ -26,15 +26,14 @@
 #include "Privado.h"
 #include "captive_manager.h"
 
-void geoapify_fetch_once(void);
+void geoapify_fetch_once_wifi_unwired(void);
 
 #define SENSOR_TASK_STACK 10240
 #define ENABLE_HTTP_VERBOSE 1
 #define LOG_EACH_SAMPLE 1
-
-static const char *TAG = "ESP32-C3-FB";
-
 static inline int64_t minutes_to_us(int m) { return (int64_t)m * 60 * 1000000; }
+
+static const char *TAG = "ESP-WF";
 
 static void init_sntp_and_time(void) {
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
@@ -64,17 +63,18 @@ void sensor_task(void *pv) {
 
     bool first_send = true;
 
-    geoapify_fetch_once_wifi_unwired();   // <--- llamada nueva (WiFi positioning)
+    geoapify_fetch_once_wifi_unwired();
 
     if (firebase_init() != 0) {
         ESP_LOGE(TAG, "Error inicializando Firebase");
         vTaskDelete(NULL);
+        return;
     }
-
+    
     vTaskDelay(pdMS_TO_TICKS(1000));
     firebase_delete("/historial_mediciones");
-    // Configuración de muestreo/envío
-    // 1 muestra cada 1 minuto, envío cada 5 minutos (5 muestras por lote)
+
+    // 1 muestra/minuto, envío cada 5 min
     const int SAMPLE_EVERY_MIN = 1;
     const int SAMPLES_PER_BATCH = 5;
     const TickType_t SAMPLE_DELAY_TICKS = pdMS_TO_TICKS(SAMPLE_EVERY_MIN * 60000);
@@ -166,19 +166,27 @@ void sensor_task(void *pv) {
             // Log dinámico indicando cada cuántos minutos se está enviando
             int batch_minutes = SAMPLES_PER_BATCH * SAMPLE_EVERY_MIN;
             ESP_LOGI(TAG, "JSON promedio %dm: %s", batch_minutes, json);
-            firebase_push("/historial_mediciones", json);
 
-            // Retención aproximada por tamaño total (10 MB) sin cambiar estructura
-            const size_t MAX_BYTES = 10 * 1024 * 1024; // 10 MB
-            static double avg_size = 256.0; // bytes promedio por item (estimado dinámico)
-            static uint32_t approx_count = 0; // cuenta aproximada desde boot
+            /* ===== NUEVO: clave YY-MM-DD_HH-MM y PUT idempotente ===== */
+            char clave_min[18]; // "YY-MM-DD_HH-MM" + '\0' => 17 chars
+            strftime(clave_min, sizeof(clave_min), "%y-%m-%d_%H-%M", &tm_info);
+
+            char path_put[64];
+            snprintf(path_put, sizeof(path_put), "/historial_mediciones/%s", clave_min);
+
+            ESP_LOGI(TAG, "Path: %s", path_put);
+            firebase_putData(path_put, json);
+            //firebase_push("/historial_mediciones", json);
+
+            // Retención aproximada por tamaño total (~10 MB)
+            const size_t MAX_BYTES = 10 * 1024 * 1024;
+            static double avg_size = 256.0;
+            static uint32_t approx_count = 0;
             size_t item_len = strlen(json);
-            // actualizar media móvil simple
             avg_size = (avg_size * 0.9) + (0.1 * (double)item_len);
             approx_count++;
-
             uint32_t max_items = (uint32_t)(MAX_BYTES / (avg_size > 1.0 ? avg_size : 1.0));
-            uint32_t high_water = max_items + 50; // margen para evitar recortes constantes
+            uint32_t high_water = max_items + 50;
             if (approx_count > high_water) {
                 int deleted = firebase_trim_oldest_batch("/historial_mediciones", 50);
                 if (deleted > 0) {
@@ -188,16 +196,18 @@ void sensor_task(void *pv) {
                 }
             }
 
+            // Reset de acumuladores
             sample_count = 0;
             sum_pm1p0=sum_pm2p5=sum_pm4p0=sum_pm10p0=sum_voc=sum_nox=sum_avg_temp=sum_avg_hum=0;
             sum_co2 = 0;
         }
+
         // Refresh del token cada ~50 min (no le afecta SNTP):
         int64_t now_us = esp_timer_get_time();
         if (now_us >= next_refresh_us) {
-            ESP_LOGI(TAG_APP, "Refrescando token (50m) [monotónico]...");
+            ESP_LOGI(TAG, "Refrescando token (50m) [monotónico]...");
             int r = firebase_refresh_token();
-            if (r == 0) ESP_LOGI(TAG_APP, "Token refresh OK"); else ESP_LOGW(TAG_APP, "Fallo refresh token (%d)", r);
+            if (r == 0) ESP_LOGI(TAG, "Token refresh OK"); else ESP_LOGW(TAG, "Fallo refresh token (%d)", r);
             // agenda el próximo exactamente 50 min después DEL AHORA (evita drift):
             next_refresh_us = now_us + REFRESH_US;
         }

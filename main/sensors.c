@@ -3,6 +3,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "privado.h" //
 
 #define I2C_MASTER_SCL_IO 6
 #define I2C_MASTER_SDA_IO 7
@@ -108,10 +109,12 @@ static int sen5x_decode_measurement(const uint8_t *buf, float *pm1, float *pm25,
 
 esp_err_t sensors_init_all(void) {
     ESP_LOGI(TAG_SENS, "Init I2C + sensors...");
+    vTaskDelay(pdMS_TO_TICKS(1500));
     if (s_i2c_bus) {
         ESP_LOGD(TAG_SENS, "I2C bus ya inicializado");
         return ESP_OK;
     }
+    vTaskDelay(pdMS_TO_TICKS(1500));
 
     i2c_master_bus_config_t bus_cfg = {
         .i2c_port = I2C_PORT,
@@ -194,8 +197,8 @@ esp_err_t sensors_read(SensorData *out) {
 void sensors_format_json(const SensorData *d, const char *time_str, const char *fecha_str, const char *inicio_str, char *buf, size_t buf_size) {
     if (!buf || buf_size == 0) return;
     int written = snprintf(buf, buf_size,
-        "{\"pm1p0\":%.2f,\"pm2p5\":%.2f,\"pm4p0\":%.2f,\"pm10p0\":%.2f,\"voc\":%.1f,\"nox\":%.1f,\"cTe\":%.2f,\"cHu\":%.2f,\"co2\":%u,\"fecha\":\"%s\",\"inicio\":\"%s\",\"ciudad\":\"%s\",\"hora\":\"%s\",\"id\":\"ESP32-C3-WF\"}",
-        d->pm1p0, d->pm2p5, d->pm4p0, d->pm10p0, d->voc, d->nox, d->avg_temp, d->avg_hum, d->co2, fecha_str, inicio_str, g_city_state, time_str);
+        "{\"pm1p0\":%.2f,\"pm2p5\":%.2f,\"pm4p0\":%.2f,\"pm10p0\":%.2f,\"voc\":%.1f,\"nox\":%.1f,\"cTe\":%.2f,\"cHu\":%.2f,\"co2\":%u,\"fecha\":\"%s\",\"inicio\":\"%s\",\"ciudad\":\"%s\",\"hora\":\"%s\",\"id\":\"%s\"}",
+        d->pm1p0, d->pm2p5, d->pm4p0, d->pm10p0, d->voc, d->nox, d->avg_temp, d->avg_hum, d->co2, fecha_str, inicio_str, g_city_state, time_str, DEVICE_ID);
     if (written < 0 || (size_t)written >= buf_size) {
         if (buf_size) buf[buf_size-1] = '\0';
     }
@@ -208,3 +211,4 @@ void sensors_set_city_state(const char *city_state) {
     memcpy(g_city_state, city_state, len);
     g_city_state[len] = '\0';
 }
+
