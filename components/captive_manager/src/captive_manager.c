@@ -310,69 +310,181 @@ static void scan_start(void) {
     esp_wifi_scan_start(&sc, false);
 }
 
-// perform_scan_sync_and_respond eliminado: no se usa (reemplazado por scan_get)
 
+static esp_err_t favicon_get(httpd_req_t *r)
+{
+    httpd_resp_set_status(r, "204 No Content");
+    httpd_resp_set_type(r, "image/x-icon");
+    return httpd_resp_send(r, NULL, 0);
+}
 // HTTP Handlers (UI mejorada con selección y auto-disable pass)
-static esp_err_t root_get(httpd_req_t *r) {
+static esp_err_t root_get(httpd_req_t *r)
+{
+    // Cabeceras
+    httpd_resp_set_type(r, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(r, "Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    httpd_resp_set_hdr(r, "Pragma", "no-cache");
+    httpd_resp_set_hdr(r, "Expires", "0");
+    httpd_resp_set_hdr(r, "Connection", "close");
 
-    // Realizar escaneo de redes Wi-Fi
-    // HTML con <select> vacío y JS para renderizar redes
-    const char *page =
-        "<!DOCTYPE html><html><head><title>WF_MNGR_AMBT</title><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-        "<style>body{text-align:center;margin:0}.card{background:#fff;box-shadow:2px 2px 12px rgba(0,0,0,.2);padding:20px;max-width:400px;margin:auto;border-radius:8px}"
-        "select,input{width:80%%;padding:12px;margin:10px 0;border:1px solid #ccc;border-radius:4px}input[type=submit]{background:#034078;color:#fff;padding:15px;border:none;border-radius:4px;cursor:pointer}"
-        "input[type=submit]:hover{background:#1282A2}label{display:block;margin-top:10px}</style></head><body>"
-        "<div style=\"background:#0A1128;padding:10px\"><h1 style=\"color:white;font-size:25px\">Wi-Fi Manager Ambiente</h1></div>"
-        "<div class=\"card\"><form id=\"wifiForm\"><label for=\"ssid\">SSID</label><select id=\"ssid\" name=\"ssid\" required></select>"
-        "<label for=\"pass\">Pass</label><input type=\"password\" id=\"pass\" name=\"pass\"><input type=\"submit\" value=\"Guardar\"></form></div>"
-        "<script>"
-        "function loadNetworks() {"
-        "fetch('/scan').then(r=>r.json()).then(j=> {"
-        "let s=document.getElementById('ssid'); s.innerHTML='';"
-        "j.networks.forEach(n=> {"
-        "let opt=document.createElement('option');"
-        "opt.value=n.ssid; opt.text=n.ssid + (n.open==1 ? ' (Abierta)' : ''); opt.setAttribute('data-open', n.open ? '1' : '0');"
-        "s.appendChild(opt);"
-        "});"
-        "s.dispatchEvent(new Event('change'));"
-        "});"
+    // Leer ubicación guardada (si existe) para precargar el input
+    char ubic[64] = {0};
+    if (wifi_store_get_location(ubic, sizeof(ubic)) != ESP_OK) {
+        ubic[0] = '\0';
+    }
+
+    // (Opcional) Escapar comillas dobles simples para atributo value
+    // Mantendremos el ejemplo sencillo: si tu ubicación puede contener comillas,
+    // conviene sanitizar mejor (reemplazar " por &quot;). Aquí lo hacemos básico:
+    char ubic_escaped[96];
+    size_t j = 0;
+    for (size_t i = 0; ubic[i] && j < sizeof(ubic_escaped) - 1; ++i) {
+        if (ubic[i] == '\"') {
+            if (j + 6 < sizeof(ubic_escaped)) {
+                memcpy(&ubic_escaped[j], "&quot;", 6);
+                j += 6;
+            } else break;
+        } else if (ubic[i] == '&') {
+            if (j + 5 < sizeof(ubic_escaped)) {
+                memcpy(&ubic_escaped[j], "&amp;", 5);
+                j += 5;
+            } else break;
+        } else if (ubic[i] == '<') {
+            if (j + 4 < sizeof(ubic_escaped)) {
+                memcpy(&ubic_escaped[j], "&lt;", 4);
+                j += 4;
+            } else break;
+        } else if (ubic[i] == '>') {
+            if (j + 4 < sizeof(ubic_escaped)) {
+                memcpy(&ubic_escaped[j], "&gt;", 4);
+                j += 4;
+            } else break;
+        } else {
+            ubic_escaped[j++] = ubic[i];
+        }
+    }
+    ubic_escaped[j] = '\0';
+
+    const char *head =
+        "<!doctype html><html lang=\"es\"><head>"
+        "<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        "<title>LCT Ambiente Configurar Red Wi-Fi</title>"
+        "<style>"
+        "body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;margin:0;background:#f6f7fb;color:#111}"
+        ".wrap{max-width:720px;margin:24px auto;padding:16px}"
+        ".card{background:#fff;border-radius:16px;box-shadow:0 6px 18px rgba(0,0,0,.08);padding:20px}"
+        "h1{font-size:20px;margin:0 0 12px}"
+        "label{display:block;font-weight:600;margin:16px 0 6px}"
+        "select,input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #dcdfe6;border-radius:10px;font-size:14px}"
+        "button,input[type=submit]{margin-top:18px;border:0;border-radius:12px;padding:12px 16px;cursor:pointer;font-weight:600}"
+        "input[type=submit]{background:#111;color:#fff}"
+        ".hint{font-size:12px;color:#666;margin-top:6px}"
+        ".footer{margin-top:12px;font-size:12px;color:#666}"
+        "</style></head><body><div class=\"wrap\"><div class=\"card\">"
+        "<h1>LCT Didacticos</h1>"
+        "<h1>Mediciones Ambientales</h1>"
+        "<h1>Conectar a una red Wi-Fi</h1>"
+        "<form id=\"wifiForm\">"
+        "<label for=\"ssid\">SSID</label>"
+        "<select id=\"ssid\" name=\"ssid\" required><option value=\"\" disabled selected>Cargando redes...</option></select>"
+        "<label for=\"pass\">Contraseña</label>"
+        "<input type=\"password\" id=\"pass\" name=\"pass\">"
+        "<label for=\"ubic\">Ubicación</label>"
+        "<input type=\"text\" id=\"ubic\" name=\"ubic\" placeholder=\"Ej. Cuernavaca Morelos\" value=\"";
+
+    const char *tail =
+        "\">"
+        "<input type=\"submit\" value=\"Conectarse\">"
+        "</form>"
+        "</div></div>"
+        "<script>\"use strict\";"
+        "async function loadNetworks(){"
+        "   try{"
+        "       const r = await fetch('/scan');"
+        "       const j = await r.json();"
+        "       /* Tu /scan puede devolver un arreglo directo o { networks: [...] } */"
+        "       const aps = Array.isArray(j) ? j : (Array.isArray(j.networks) ? j.networks : []);"
+        "       const sel = document.getElementById('ssid');"
+        "       sel.innerHTML = '';"
+        "       if (Array.isArray(aps) && aps.length){"
+        "           for (const ap of aps){"
+        "               const o = document.createElement('option');"
+        "               const isOpen = !!ap.open;"
+        "               o.value = ap.ssid || '';"
+        "               o.setAttribute('data-open', isOpen ? '1' : '0');"
+        "               const base = (ap.ssid || '(oculta)') + (isOpen ? ' (abierta)' : '');"
+        "               o.textContent = base + (ap.rssi !== undefined ? ('  (' + ap.rssi + ' dBm)') : '');"
+        "               /* Guardamos si es red abierta */"
+        "               sel.appendChild(o);"
+        "           }"
+        "           /* Selección inicial y ajuste del campo de contraseña*/"
+        "           sel.selectedIndex = 0;"
+        "           applyPassDisable();"
+        "       }else {"
+        "           sel.innerHTML = '<option value="">(No se encontraron redes)</option>';"
+        "           /* Si no hay redes, aseguramos que el campo no quede bloqueado*/ "
+        "           const pass = document.getElementById('pass');"
+        "           pass.disabled = false;"
+        "       }"
+        "   } catch (e){"
+        "       console.error('Error cargando redes:', e);"
+        "   }"
         "}"
-        "const s=document.getElementById('ssid'),p=document.getElementById('pass');"
-        "function updatePassField() {"
-        "  const o=s.options[s.selectedIndex];"
-        "  if(o && o.getAttribute('data-open')==='1') {"
-        "    p.disabled=true; p.value='';"
-        "  } else {"
-        "    p.disabled=false;"
-        "  }"
+        "function applyPassDisable(){"
+        "   const sel  = document.getElementById('ssid');"
+        "   const pass = document.getElementById('pass');"
+        "   const opt  = sel && sel.options[sel.selectedIndex];"
+        "   const isOpen = !!(opt && opt.getAttribute('data-open') === '1');"
+        "   pass.disabled = isOpen;"
+        "   if (isOpen){"
+        "       pass.value = '';"
+        "       pass.placeholder = 'Esta red no requiere contraseña';"
+        "   }else {"
+        "       pass.placeholder = ' ';"
+        "   }"
         "}"
-        "s.addEventListener('change',updatePassField);"
-        "window.onload=()=>{loadNetworks();updatePassField();};"
-        // Nuevo: enviar datos como JSON vía fetch
-        "document.getElementById('wifiForm').onsubmit=function(e){"
-        "  e.preventDefault();"
-        "  const ssid=s.value, pass=p.value;"
-        "  fetch('/save', {"
-        "    method:'POST',"
-        "    headers:{'Content-Type':'application/json'},"
-        "    body:JSON.stringify({ssid:ssid,pass:pass})"
-        "  }).then(r=>r.text()).then(txt=>{"
-        "    if (txt.trim()==='OK') {"
-        "      alert('Datos enviados correctamente, El dispositivo intentara conectarse.');"
-        "    } else {"
-        "      alert('Respuesta inesperada: '+txt);"
-        "    }"
-        "  }).catch(()=>alert('Error al enviar datos'));"
-        "};"
+        "document.getElementById('ssid').addEventListener('change', applyPassDisable);"
+        "/* Envío del formulario*/"
+        "document.getElementById('wifiForm').addEventListener('submit', async (ev) => {"
+        "   ev.preventDefault();"
+        "   const ssid = document.getElementById('ssid').value || '';"
+        "   const pass = document.getElementById('pass').value || '';"
+        "   const ubic = document.getElementById('ubic').value || '';"
+        "   try{"
+        "       const resp = await fetch('/save', {"
+        "       method: 'POST',"
+        "       headers: {'Content-Type':'application/json'},"
+        "       body: JSON.stringify({ ssid, pass, ubic })"
+        "       });"
+        "       const txt = await resp.text();"
+        "       alert(txt || 'Guardado. Reiniciando...');"
+        "   } catch (e){"
+        "       alert('Error guardando: ' + (e && e.message ? e.message : e));"
+        "   }"
+        "});"
+        "/* Cargar redes al iniciar*/"
+        "window.addEventListener('load', () => { loadNetworks(); });"
         "</script></body></html>";
-    httpd_resp_set_type(r, "text/html");
-    httpd_resp_send(r, page, strlen(page));
-    return ESP_OK;
+
+    size_t total = strlen(head) + strlen(ubic_escaped) + strlen(tail) + 1;
+    char *page = (char*)malloc(total);
+    if (!page) {
+        return httpd_resp_send_err(r, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+    }
+
+    strcpy(page, head);
+    strcat(page, ubic_escaped);
+    strcat(page, tail);
+
+    esp_err_t er = httpd_resp_send(r, page, HTTPD_RESP_USE_STRLEN);
+    free(page);
+    return er;
+    // --- FIN NUEVO ---
 }
 
 // Handler global para /save
 static esp_err_t save_post(httpd_req_t *r) {
-    char buf[256];
+    char buf[512]; 
     int len = httpd_req_recv(r, buf, sizeof(buf)-1);
     if (len <= 0) return httpd_resp_send_err(r,400,"empty");
     buf[len]=0;
@@ -380,16 +492,20 @@ static esp_err_t save_post(httpd_req_t *r) {
     if (!root) return httpd_resp_send_err(r,400,"json");
     cJSON *js = cJSON_GetObjectItem(root,"ssid");
     cJSON *jp = cJSON_GetObjectItem(root,"pass");
+    cJSON *ju = cJSON_GetObjectItem(root,"ubic");
     if (!cJSON_IsString(js)) { cJSON_Delete(root); return httpd_resp_send_err(r,400,"ssid?"); }
     const char *ssid = js->valuestring;
     const char *pass = (jp && cJSON_IsString(jp)) ? jp->valuestring : "";
 
-    // Guardar directamente en NVS para flujo "guardar y reiniciar"
+    // Guardar ssid/pass y ubicación en NVS
     wifi_store_save(ssid, pass);
+    if (ju && cJSON_IsString(ju)) {
+        wifi_store_set_location(ju->valuestring);
+    }
     start_mdns_service(); // mDNS tras cambio de modo
 
     // Responder inmediatamente para buena UX en el navegador
-    httpd_resp_sendstr(r, "OK");
+    httpd_resp_sendstr(r, "Datos Guardados, Intentando Conectarse, El dispositivo se reiniciara en segundos.");
 
     // Lanzar reinicio diferido
     xTaskCreate(restart_later_task, "rst_later", 2048, NULL, 5, NULL);
@@ -399,7 +515,7 @@ static esp_err_t save_post(httpd_req_t *r) {
 }
 
 static esp_err_t scan_get(httpd_req_t *r) {
-    // Escaneo de hasta 10 redes y respuesta en JSON
+    // Escaneo de hasta 15 redes y respuesta en JSON
     // Guardar modo actual
     wifi_mode_t old_mode;
     esp_wifi_get_mode(&old_mode);
@@ -411,7 +527,7 @@ static esp_err_t scan_get(httpd_req_t *r) {
     uint16_t ap_num = 0;
     esp_wifi_scan_get_ap_num(&ap_num);
     ESP_LOGI("SCAN", "Redes detectadas: %d", ap_num);
-    if (ap_num > 20) ap_num = 20;
+    if (ap_num > 20) ap_num = 20; // limitar a 20
     wifi_ap_record_t *list = calloc(ap_num, sizeof(wifi_ap_record_t));
     if (!list) {
         ESP_LOGE("SCAN", "OOM al reservar array");
@@ -439,7 +555,7 @@ static esp_err_t scan_get(httpd_req_t *r) {
 }
 
 static esp_err_t connect_post(httpd_req_t *r) {
-    char buf[256];
+    char buf[512];
     int len = httpd_req_recv(r, buf, sizeof(buf)-1);
     if (len <= 0) return httpd_resp_send_err(r,400,"empty");
     buf[len]=0;
@@ -447,12 +563,16 @@ static esp_err_t connect_post(httpd_req_t *r) {
     if (!root) return httpd_resp_send_err(r,400,"json");
     cJSON *js = cJSON_GetObjectItem(root,"ssid");
     cJSON *jp = cJSON_GetObjectItem(root,"pass");
+    cJSON *ju = cJSON_GetObjectItem(root,"ubic");
     if (!cJSON_IsString(js)) { cJSON_Delete(root); return httpd_resp_send_err(r,400,"ssid?"); }
     const char *ssid = js->valuestring;
     const char *pass = (jp && cJSON_IsString(jp)) ? jp->valuestring : "";
 
-    // Guardar directamente en NVS y reiniciar, igual que /save
+    // Guardar ssid/pass y ubicación en NVS (igual que /save)
     wifi_store_save(ssid, pass);
+    if (ju && cJSON_IsString(ju)) {
+        wifi_store_set_location(ju->valuestring);
+    }
     start_mdns_service(); // mDNS tras cambio de modo
     httpd_resp_sendstr(r, "OK");
     xTaskCreate(restart_later_task, "rst_later", 2048, NULL, 5, NULL);
@@ -502,6 +622,7 @@ static esp_err_t wifi_clear_get(httpd_req_t *r) {
 // CM_UNUSED y captive_get_netif_num eliminados: no se usan
 
 static esp_err_t save_post(httpd_req_t *r); // Prototipo
+static httpd_uri_t uri_favicon   = { .uri="/favicon.ico", .method=HTTP_GET,   .handler=favicon_get };
 static httpd_uri_t uri_root      = { .uri="/",            .method=HTTP_GET,    .handler=root_get };
 static httpd_uri_t uri_scan      = { .uri="/scan",        .method=HTTP_GET,    .handler=scan_get };
 static httpd_uri_t uri_connect   = { .uri="/connect",     .method=HTTP_POST,   .handler=connect_post };
@@ -517,6 +638,7 @@ static esp_err_t start_http(void) {
     cfg.lru_purge_enable = true;
     if (httpd_start(&g_server, &cfg) == ESP_OK) {
     httpd_register_uri_handler(g_server,&uri_root);
+    httpd_register_uri_handler(g_server,&uri_favicon);
     httpd_register_uri_handler(g_server,&uri_scan);
     httpd_register_uri_handler(g_server,&uri_connect);
     httpd_register_uri_handler(g_server,&uri_save);
@@ -540,6 +662,7 @@ static esp_err_t start_http_sta_minimal(void) {
     cfg.stack_size = 4096;
     cfg.lru_purge_enable = true;
     if (httpd_start(&g_sta_server, &cfg) == ESP_OK) {
+        httpd_register_uri_handler(g_sta_server, &uri_favicon);
         httpd_register_uri_handler(g_sta_server, &uri_wifi_clr);
         httpd_register_uri_handler(g_sta_server, &uri_wifi_clr_get);
         ESP_LOGI(TAG, "STA-min HTTP server started (/wifi/clear)");
@@ -605,11 +728,11 @@ static void start_mdns_service(void) {
     static bool mdns_started = false;
     if (mdns_started) return;
     if (mdns_init() == ESP_OK) {
-        mdns_hostname_set("LCTMedAmb");
-        mdns_instance_name_set("ESP32 Ambiente");
+        mdns_hostname_set("LCTAmbiente");
+        mdns_instance_name_set("LCTAmbiente");
         mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
         mdns_started = true;
-        ESP_LOGI(TAG, "mDNS started as LCTMedAmb.local");
+        ESP_LOGI(TAG, "mDNS started as LCTAmbiente.local");
     } else {
         ESP_LOGW(TAG, "mDNS init failed");
     }

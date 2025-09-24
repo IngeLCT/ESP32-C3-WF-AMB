@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "geoapify_parser.cpp" "sensors.c" "Geoapify.c" "main.c"
+    SRCS "sensors.c" "main.c"
     INCLUDE_DIRS "."
     REQUIRES
         esp_firebase

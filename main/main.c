@@ -26,6 +26,10 @@
 #include "Privado.h"
 #include "captive_manager.h"
 
+#include "nvs_flash.h"
+#include "esp_log.h"
+#include "wifi_store.h"
+
 void geoapify_fetch_once_wifi_unwired(void);
 
 #define SENSOR_TASK_STACK 10240
@@ -34,6 +38,31 @@ void geoapify_fetch_once_wifi_unwired(void);
 static inline int64_t minutes_to_us(int m) { return (int64_t)m * 60 * 1000000; }
 
 static const char *TAG = "ESP-WF";
+
+char g_ubicacion[64] = {0};
+const char *app_get_ubicacion(void) { return g_ubicacion; }
+
+static void app_init_nvs(void)
+{
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+}
+
+static void app_cargar_ubicacion(void)
+{
+    g_ubicacion[0] = '\0';
+    esp_err_t err = wifi_store_get_location(g_ubicacion, sizeof(g_ubicacion));
+    if (err == ESP_OK) {
+        sensors_set_city_state(g_ubicacion);
+        ESP_LOGI(TAG, "Ubicación guardada: '%s'", g_ubicacion); // puede venir vacía si nunca se guardó
+    } else {
+        ESP_LOGW(TAG, "No se pudo leer la ubicación (err=0x%x)", err);
+    }
+}
 
 static void init_sntp_and_time(void) {
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
@@ -63,7 +92,9 @@ void sensor_task(void *pv) {
 
     bool first_send = true;
 
-    geoapify_fetch_once_wifi_unwired();
+    //geoapify_fetch_once_wifi_unwired();
+    app_init_nvs();         // 1) NVS listo antes de usar wifi_store_*
+    app_cargar_ubicacion(); // 2) Leer y dejar en g_ubicacion
 
     if (firebase_init() != 0) {
         ESP_LOGE(TAG, "Error inicializando Firebase");
@@ -168,8 +199,8 @@ void sensor_task(void *pv) {
             ESP_LOGI(TAG, "JSON promedio %dm: %s", batch_minutes, json);
 
             /* ===== NUEVO: clave YY-MM-DD_HH-MM y PUT idempotente ===== */
-            char clave_min[18]; // "YY-MM-DD_HH-MM" + '\0' => 17 chars
-            strftime(clave_min, sizeof(clave_min), "%y-%m-%d_%H-%M", &tm_info);
+            char clave_min[20]; // "YY-MM-DD_HH-MM-SS" + '\0' => 18 chars
+            strftime(clave_min, sizeof(clave_min), "%y-%m-%d_%H-%M-%S", &tm_info);
 
             char path_put[64];
             snprintf(path_put, sizeof(path_put), "/historial_mediciones/%s", clave_min);
