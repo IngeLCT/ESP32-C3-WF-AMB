@@ -1,179 +1,65 @@
-# Proyecto ESP32-C3-WF-FB
+# ESP32-C3-WF-AMB
 
-Proyecto basado en ESP-IDF para ESP32 (target principal: `esp32`). Incluye componentes personalizados (`esp_firebase`, `jsoncpp`) y manejo de sensores + WiFi + Firebase.
-
----
-### 1. Versiones Recomendadas
-| Componente | Versión sugerida |
-|------------|------------------|
-| ESP-IDF    | ESP-IDF v5.5.1   |
-| Python     | Python 3.11.2    |
-
-Ver tu versión:
-```
-idf.py --version
-```
-
-Si cambias de versión, actualiza esta tabla para mantener consistencia.
+Proyecto para **ESP32-C3** (ESP-IDF) orientado a **mediciones ambientales** con **conectividad Wi-Fi** y envío de datos a **Firebase Realtime Database**.  
+Incluye un **portal cautivo** con modo **AP+NAT (router)** para asistir en redes con **portal cautivo**, **verificación activa de conectividad a Internet** y soporte **mDNS** (opcional). Licencia **MIT**.
 
 ---
-### 2. Estructura relevante
-```
-ESP-WROVER-FB/
-  CMakeLists.txt
-  sdkconfig              # Configuración compartida del proyecto
-  components/            # Componentes propios / externos gestionados
-  main/                  # Código principal
-    Privado.example.h    # Plantilla credenciales (se versiona)
-    Privado.h            # Real (IGNORADO)
-```
+
+## ¿Qué hace?
+
+- **Mide variables ambientales** (sensores integrados en el proyecto) y prepara un **payload JSON** con las lecturas.  
+- **Configura Wi-Fi** sin hard-coding de credenciales mediante un **portal cautivo** propio (escaneo, selección de SSID y guardado persistente).  
+- **Verifica** si hay **salida a Internet**; si no la hay, habilita **AP+NAT** para que el usuario complete el **login del portal cautivo** desde su teléfono/PC.  
+- **Envía mediciones a Firebase** por **HTTP/REST**.  
+- **Intervalo de envío configurable** y **número de muestras configurable** para **promediar** localmente y **enviar solo el promedio** a Firebase (parámetros definidos en el código de la app).
 
 ---
-### 3. Credenciales (`Privado.h`)
-El archivo real `main/Privado.h` está en `.gitignore`. Debes crear uno a partir de la plantilla:
-```
-copy main\Privado.example.h main\Privado.h   (Windows)
-cp main/Privado.example.h main/Privado.h      (Linux/macOS)
-```
-Luego edita valores (WiFi, Firebase, Geoapify, etc.).
 
-Ejemplo:
-```c
-#pragma once
-#define WIFI_SSID "TU_SSID"
-#define WIFI_PASS "TU_PASSWORD"
-#define FIREBASE_API_KEY "TU_API_KEY"
-```
+## Requisitos
+
+- **ESP-IDF 5.x** (recomendado 5.5.1) y **Python 3.11.x** para el toolchain.  
+- **Target**: `esp32c3`.  
+- **Firebase Realtime Database** operativo (URL y API-Key).  
+- (Opcional) **mDNS** habilitado si quieres acceso por `*.local`.
 
 ---
-### 4. Clonar y configurar en Windows
-1. Instalar misma versión de ESP-IDF (instalador oficial) y abrir "ESP-IDF PowerShell".
-2. Clonar:
-```
-git clone https://github.com/IngeLCT/ESP-WROVER-FB-WF.git
-cd ESP-WROVER-FB-WF
-```
-3. Crear credenciales:
-```
-copy main\Privado.example.h main\Privado.h
-```
-4. Seleccionar target y preparar:
-```
-idf.py set-target esp32
-idf.py reconfigure
-```
-5. Compilar:
-```
-idf.py build
-```
-6. Flashear + monitor (ajusta COM):
-```
-idf.py -p COM4 flash monitor
-```
-Salir: `Ctrl+]`.
 
-Listar puertos:
-```
-Get-CimInstance Win32_SerialPort | Select-Object Name,DeviceID
-```
+## Funcionalidades
 
----
-### 5. Clonar y configurar en Linux / macOS
-1. Instalar ESP-IDF (clonar repositorio oficial y `install.sh`).
-2. Exportar entorno:
-```
-. $HOME/esp/esp-idf/export.sh
-```
-3. Clonar:
-```
-git clone https://github.com/IngeLCT/ESP-WROVER-FB-WF.git
-cd ESP-WROVER-FB-WF
-```
-4. Credenciales:
-```
-cp main/Privado.example.h main/Privado.h
-```
-5. Compilar y flashear:
-```
-idf.py set-target esp32
-idf.py build
-idf.py -p /dev/ttyUSB0 flash monitor
-```
+### 1) Captive Manager (portal cautivo)
+
+- **SoftAP + portal web** para la provisión inicial (o recuperación).  
+- **Escaneo de redes** y lista de SSID; identificación de redes **abiertas** (sin contraseña) y **guardado persistente** en NVS.  
+- **Arranque inteligente**: si existen credenciales válidas y hay salida a Internet, **omite** el portal y continúa en **STA**.  
+- **Redirección tipo “cautivo”**: mientras está en AP, toda navegación apunta al portal local para configurar.  
+- **Reintentos / timeouts**: si la conexión falla, **reabre** el portal para re-provisión.
+
+### 2) Verificación de Internet
+
+- Tras asociarse a la red, realiza **pruebas activas de conectividad** (DNS/HTTP con timeouts).  
+- Si **no hay salida** en varios intentos (configurable), cambia a estado de **asistencia** y/o **re-provisión** según corresponda.
+
+### 3) Asistencia para portales cautivos (modo AP+NAT)
+
+- Cuando la red requiere **login** (portal cautivo), el dispositivo mantiene **AP+STA** y habilita **NAT** para que los clientes del AP naveguen “a través” del ESP hasta la red STA.  
+- El usuario se conecta al **AP del ESP** y realiza el **login** del portal.  
+- Una vez que las **pruebas de Internet** pasan el umbral (configurable), el dispositivo **apaga el AP** y queda **operativo en STA**.
+
+> **Nota:** El dispositivo **no automatiza** el login del portal; solo **facilita** el proceso con el patrón **AP+NAT**.
+
+### 4) Medición y envío de datos (Firebase)
+
+- Lectura de **sensores ambientales** y **serialización JSON**.  
+- **Promedio local**: se acumulan **N muestras** (configurable) y se **envía un promedio** a la base para reducir ruido y uso de red.  
+- **Intervalo de envío** y **N de muestras** son **configurables** en el código principal de la app.  
+- Cliente **REST** ligero para **Firebase Realtime Database**.
+
+### 5) mDNS (opcional)
+
+- Posibilidad de anunciar **hostname** y servicio **HTTP** para acceso vía `http://<hostname>.local` en la LAN (si tu entorno soporta mDNS).  
 
 ---
-### 6. Comandos frecuentes
-```
-idf.py build                    # Compila
-idf.py flash                    # Flashea último build
-idf.py -p <PORT> flash monitor  # Flashea y monitor
-idf.py monitor                  # Solo monitor
-idf.py size                     # Tamaño bins
-idf.py menuconfig               # Config interactiva
-idf.py fullclean                # Limpieza total
-```
 
----
-### 7. Dependencias
-`dependencies.lock` fija versiones de componentes (IDF Managed Components). No lo borres. `managed_components/` se genera automáticamente.
+## Licencia
 
----
-### 8. Flujo Git sugerido
-```
-git pull --rebase
-git checkout -b feature/nueva-funcion
-git add .
-git commit -m "feat: agrega X"
-git push origin feature/nueva-funcion
-```
-Crear Pull Request -> revisar -> merge a `main`.
-
----
-### 9. Cambio de versión ESP-IDF
-Cuando se actualice:
-```
-idf.py fullclean
-idf.py reconfigure
-idf.py build
-```
-
----
-### 10. Problemas comunes
-| Problema | Causa | Solución |
-|----------|-------|----------|
-| Falta Privado.h | No copiaste plantilla | Copiar `.example` y editar |
-| Error puerto | Puerto incorrecto | Ver puertos / permisos |
-| Falla tras upgrade | Caché vieja | `idf.py fullclean` |
-| No conecta Firebase | Credenciales mal | Revisar `Privado.h` |
-
----
-### 11. Licencia
-Este proyecto se distribuye bajo la licencia **MIT**. Consulta el archivo `LICENSE` para el texto completo.
-```
-Copyright (c) 2025 IngeLCT
-
-Se concede permiso, libre de cargos, a cualquier persona que obtenga una copia
-de este software y archivos de documentación asociados (el "Software"), para usar
-el Software sin restricción, incluyendo sin limitación los derechos a usar, copiar,
-modificar, fusionar, publicar, distribuir, sublicenciar y/o vender copias del Software,
-y a permitir a las personas a las que se les proporcione el Software a hacer lo mismo,
-con sujeción a las siguientes condiciones:
-
-El aviso de copyright anterior y este aviso de permiso se incluirán en todas las
-copias o partes sustanciales del Software.
-
-EL SOFTWARE SE PROPORCIONA "TAL CUAL", SIN GARANTÍA DE NINGÚN TIPO, EXPRESA O
-IMPLÍCITA, INCLUYENDO PERO NO LIMITADO A GARANTÍAS DE COMERCIALIZACIÓN, IDONEIDAD
-PARA UN PROPÓSITO PARTICULAR E INCUMPLIMIENTO. EN NINGÚN CASO LOS AUTORES O TITULARES
-DEL COPYRIGHT SERÁN RESPONSABLES POR NINGUNA RECLAMACIÓN, DAÑOS U OTRA RESPONSABILIDAD,
-YA SEA EN UNA ACCIÓN DE CONTRATO, AGRAVIO O CUALQUIER OTRO MOTIVO, DERIVADOS DE,
-O EN CONEXIÓN CON EL SOFTWARE O EL USO U OTROS TRATOS EN EL SOFTWARE.
-```
-
----
-### 12. Mejoras futuras
-- Añadir tests (Unity) para sensores.
-- Documentar endpoints Firebase.
-- Script para crear `Privado.h` automático.
-
----
-¿Necesitas otro ajuste? Pide y lo añadimos.
+Distribuido bajo **MIT**. Consulta el archivo `LICENSE` en el repositorio.
