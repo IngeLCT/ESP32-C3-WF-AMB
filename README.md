@@ -7,11 +7,11 @@ Incluye un **portal cautivo** con modo **AP+NAT (router)** para asistir en redes
 
 ## ¿Qué hace?
 
-- **Mide variables ambientales** (sensores integrados en el proyecto) y prepara un **payload JSON** con las lecturas.  
+- **Mide variables ambientales** (p. ej., PM1.0/2.5/4.0/10, VOC, NOx, CO₂, temperatura, humedad) y arma un **payload JSON** con las lecturas.  
 - **Configura Wi-Fi** sin hard-coding de credenciales mediante un **portal cautivo** propio (escaneo, selección de SSID y guardado persistente).  
 - **Verifica** si hay **salida a Internet**; si no la hay, habilita **AP+NAT** para que el usuario complete el **login del portal cautivo** desde su teléfono/PC.  
 - **Envía mediciones a Firebase** por **HTTP/REST**.  
-- **Intervalo de envío configurable** y **número de muestras configurable** para **promediar** localmente y **enviar solo el promedio** a Firebase (parámetros definidos en el código de la app).
+- **Intervalo de envío configurable** y **promedio local configurable**: el dispositivo acumula **N muestras** y **envía solo el promedio** para reducir ruido/uso de red.
 
 ---
 
