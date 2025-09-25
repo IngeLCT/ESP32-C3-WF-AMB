@@ -9,6 +9,7 @@ main/Privado.h
 # Directorios de build / artefactos generados
 build/
 managed_components/
+.devcontainer/
 
 # Binarios / mapas generados
 *.bin
