@@ -62,7 +62,7 @@ static bool wifi_reconnect_blocking(uint32_t max_wait_ms) {
         if (xTaskGetTickCount() > deadline) break;
     }
     bool ok = wifi_is_connected();
-    ESP_LOGI(TAG, ok ? "WiFi restaurado" : "Sin WiFi tras ventana de reconexión");
+    ESP_LOGI(TAG, "%s", ok ? "WiFi restaurado" : "Sin WiFi tras ventana de reconexion");
     return ok;
 }
 
