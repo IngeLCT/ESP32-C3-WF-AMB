@@ -5,8 +5,8 @@
 #include "esp_log.h"
 #include "privado.h" //
 
-#define I2C_MASTER_SCL_IO 6
-#define I2C_MASTER_SDA_IO 7
+#define I2C_MASTER_SCL_IO 5
+#define I2C_MASTER_SDA_IO 4
 #define I2C_MASTER_FREQ_HZ 100000
 #define I2C_PORT I2C_NUM_0
 
